@@ -4,20 +4,21 @@
 
 class [[eosio::contract]] profile: public eosio::contract, scheduler<eosio::name> {
 
-  bool task_handler(eosio::name profile) {
+  static bool task_handler(eosio::name profile) {
     eosio::print("on task handler for ", profile);
   }
 
 public:
 
-  profile(eosio::name receiver, eosio::name code, eosio::datastream<const char*> ds):
+  profile(eosio::name receiver, eosio::name code, eosio::datastream<const char*> ds) :
     contract(receiver, code, ds),
     scheduler(receiver, task_handler),
     profiles(receiver, receiver.value)
   {}
 
-  [[eosio::action]] void update(eosio::name user, std::string nickname, std::string avatar,
-                                std::string website, std::string locale, std::string metadata) {
+  [[eosio::action]]
+  void update(eosio::name user, std::string nickname, std::string avatar,
+              std::string website, std::string locale, std::string metadata) {
     require_auth(user);
 
     auto iterator = profiles.find(user.value);
@@ -44,7 +45,8 @@ public:
     }
   }
 
-  [[eosio::action]] void remove(eosio::name user) {
+  [[eosio::action]]
+  void remove(eosio::name user) {
     require_auth(user);
 
     auto iterator = profiles.find(user.value);
@@ -53,7 +55,8 @@ public:
   }
 
   // count One Thousand
-  [[eosio::action]] void countot(eosio::name user) {
+  [[eosio::action]]
+  void countot(eosio::name user) {
     require_auth(user);
 
     auto iterator = profiles.find(user.value);
@@ -68,10 +71,13 @@ public:
   }
 
   // count Ten Thousand
-  [[eosio::action]] void counttt(eosio::name user) {
+  [[eosio::action]]
+  void counttt(eosio::name user) {
     require_auth(user);
 
     auto iterator = profiles.find(user.value);
+    // auto idx = profiles.get_index<eosio::name("count")>();
+    // auto iterator = idx.begin();
     eosio::check(iterator != profiles.end(), "User doesn't have a profile");
 
     for (int i = 0; i < 10000; i++) {
@@ -90,11 +96,14 @@ private:
     std::string website;
     std::string locale;
     std::string metadata;
-    double count = 0.0;
+    uint64_t count = 0;
 
     uint64_t primary_key() const { return user.value; }
+    uint64_t by_count() const { return count; }
   };
-  typedef eosio::multi_index<eosio::name("profiles"), profile_entry> profiles_table;
+  typedef eosio::multi_index<eosio::name("profiles"), profile_entry,
+    eosio::indexed_by<eosio::name("count"), eosio::const_mem_fun<profile_entry, uint64_t, &profile_entry::by_count>>
+  > profiles_table;
 
   profiles_table profiles;
 

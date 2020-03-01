@@ -6,6 +6,7 @@
 #include <functional>
 
 #include <eosio/eosio.hpp>
+#include <eosio/system.hpp>
 
 
 template <typename T>
@@ -22,8 +23,13 @@ class scheduler {
 public:
 
   scheduler(eosio::name owner, handler_function handler) : owner(owner), handler(handler), workers() { }
+  // scheduler(eosio::name owner) : owner(owner), handler(nullptr), workers() { }
 
-  void register(worker_function work) {
+  // void set_handler(handler_function handler) {
+  //   this->handler = handler;
+  // }
+
+  void attach(worker_function work) {
     workers.push_back(work);
   }
 
@@ -39,19 +45,23 @@ public:
   }
 
   bool tick() {
+    // if (handler == nullptr) return false;   // handler not initialized yet
+
     tasks_table tasks(owner, owner.value);
     bool done = false;
 
-    // process a scheduled task first if already due
-    auto tasks_itr = tasks.get_index<eosio::name("timestamp")>().begin();
+    // first try to process a scheduled task, if any already due
+    auto tasks_itr = tasks.begin();
+    // auto timestamp_idx = tasks.get_index<eosio::name("timestamp")>();
+    // auto tasks_itr = timestamp_idx.begin();
     if (tasks_itr != tasks.end()) {
-      // get the older task in queue
-      auto const older = *tasks_itr;
+      // get the oldest task in queue
+      auto const oldest = *tasks_itr;
       // Is it due already?
-      eosio::time_point_sec ctime = eosio::current_time_point();
-      if (older.timestamp >= ctime.utc_seconds) {
+      eosio::time_point_sec ctime(eosio::current_time_point());
+      if (oldest.timestamp >= ctime.utc_seconds) {
         // process the task
-        done = handler(task.data);
+        done = handler(oldest.data);
         // remove the processed task from table
         tasks.erase(tasks_itr);
       }
