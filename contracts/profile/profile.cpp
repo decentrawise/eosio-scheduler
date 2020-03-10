@@ -1,26 +1,60 @@
 #include <eosio/eosio.hpp>
+#include <eosio/transaction.hpp>
 #include "../../src/scheduler.hpp"
 
 
 class [[eosio::contract]] profile: public eosio::contract, scheduler<eosio::name> {
 
-  static bool task_handler(eosio::name profile) {
-    eosio::print("on task handler for ", profile);
-  }
+  bool task_handler(eosio::name profile) {
+    // change user count to 100 if 0 or return false otherwise
+    profiles_table profiles(_self, _self.value);
+    auto iterator = profiles.find(profile.value);
+    eosio::check(iterator != profiles.end(), "User doesn't have a profile");
+    if (iterator->count < 100) {
+      profiles.modify(iterator, eosio::same_payer, [&](auto& row) {
+        row.count = 100;
+      });
+      return true;
+    }
+
+    // return true if anything was done and needs to be kept
+    // or false otherwise to cancel the transaction
+    return false;
+  };
+
+  bool worker_handler() {
+    // check user
+    profiles_table profiles(_self, _self.value);
+    auto iterator = profiles.begin();
+    if (iterator->count < 100) {
+      profiles.modify(iterator, eosio::same_payer, [&](auto& row) {
+        row.count += 1;
+      });
+      return true;
+    }
+
+    // return true if this worker did any work, false otherwise so that the
+    // scheduler can execute another worker and get something done in this tick
+    return false;
+  };
 
 public:
 
   profile(eosio::name receiver, eosio::name code, eosio::datastream<const char*> ds) :
     contract(receiver, code, ds),
-    scheduler(receiver, task_handler),
-    profiles(receiver, receiver.value)
-  {}
+    scheduler<eosio::name>(receiver, [&](auto profile) { return task_handler(profile); })
+  {
+    // attach all workers here
+    // they will be called when tick has no tasks to execute
+    attach([&](){ return worker_handler(); });
+  }
 
   [[eosio::action]]
   void update(eosio::name user, std::string nickname, std::string avatar,
               std::string website, std::string locale, std::string metadata) {
     require_auth(user);
 
+    profiles_table profiles(_self, _self.value);
     auto iterator = profiles.find(user.value);
     if (iterator == profiles.end()) {
       // Create new
@@ -49,46 +83,36 @@ public:
   void remove(eosio::name user) {
     require_auth(user);
 
+    profiles_table profiles(_self, _self.value);
     auto iterator = profiles.find(user.value);
     eosio::check(iterator != profiles.end(), "User doesn't have a profile");
     profiles.erase(iterator);
   }
 
-  // count One Thousand
   [[eosio::action]]
-  void countot(eosio::name user) {
+  void tick() {
+    // if the scheduler tick function returns true, it means that something has been done, so the state needs to be maintained,
+    // otherwise, the transaction can simply be cancelled to avoid CPU costs for nothing done
+    eosio::check(scheduler::tick(), "Nothing done");
+  }
+
+  [[eosio::action]]
+  void schedule(eosio::name user) {
     require_auth(user);
 
+    // check user
+    profiles_table profiles(_self, _self.value);
     auto iterator = profiles.find(user.value);
     eosio::check(iterator != profiles.end(), "User doesn't have a profile");
 
-    for (int i = 0; i < 1000; i++) {
-      // Update existing by incrementing count
-      profiles.modify(iterator, user, [&](auto& row) {
-        row.count++;
-      });
-    }
+    // calc 10 secods from now and schedule
+    eosio::time_point_sec ntime(eosio::current_time_point());
+    ntime += eosio::seconds(10);
+    scheduler::schedule(ntime, user);
   }
 
-  // count Ten Thousand
-  [[eosio::action]]
-  void counttt(eosio::name user) {
-    require_auth(user);
+protected:
 
-    auto iterator = profiles.find(user.value);
-    // auto idx = profiles.get_index<eosio::name("count")>();
-    // auto iterator = idx.begin();
-    eosio::check(iterator != profiles.end(), "User doesn't have a profile");
-
-    for (int i = 0; i < 10000; i++) {
-      // Update existing by incrementing count
-      profiles.modify(iterator, user, [&](auto& row) {
-        row.count++;
-      });
-    }
-  }
-
-private:
   struct [[eosio::table]] profile_entry {
     eosio::name user;
     std::string nickname;
@@ -101,12 +125,6 @@ private:
     uint64_t primary_key() const { return user.value; }
     uint64_t by_count() const { return count; }
   };
-  typedef eosio::multi_index<eosio::name("profiles"), profile_entry,
-    eosio::indexed_by<eosio::name("count"), eosio::const_mem_fun<profile_entry, uint64_t, &profile_entry::by_count>>
-  > profiles_table;
-
-  profiles_table profiles;
+  typedef eosio::multi_index<eosio::name("profiles"), profile_entry> profiles_table;
 
 };
-
-EOSIO_DISPATCH(profile, (update)(remove)(countot)(counttt))

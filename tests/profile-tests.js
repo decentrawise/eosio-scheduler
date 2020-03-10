@@ -6,7 +6,7 @@ const PROFILE_ABI_PATH = './compiled/profile.abi';
 describe("Test profile contract", function (eoslime) {
 
     // Increase mocha(testing framework) time, otherwise tests fails
-    this.timeout(15000);
+    this.timeout(50000);
 
     let profileContract;
     let profileUser1;
@@ -47,9 +47,6 @@ describe("Test profile contract", function (eoslime) {
         let tx = await profileContract.update(profileUser1.name, userprofile1.nickname, userprofile1.avatar, userprofile1.website,
                                               userprofile1.locale, userprofile1.metadata, {from: profileUser1});
 
-        console.log('CPU:', tx.processed.receipt.cpu_usage_us, 'NET:', tx.processed.net_usage);
-        console.log(tx.processed.action_traces[0].console);
-
         let profileData = await profileContract.profiles.equal(profileUser1.name).find();
 
         assert.notEqual(profileData[0],       undefined,              "No user profile defined");
@@ -65,9 +62,6 @@ describe("Test profile contract", function (eoslime) {
         let tx = await profileContract.update(profileUser2.name, userprofile2.nickname, userprofile2.avatar, userprofile2.website,
                                               userprofile2.locale, userprofile2.metadata, {from: profileUser2});
 
-        console.log('CPU:', tx.processed.receipt.cpu_usage_us, 'NET:', tx.processed.net_usage);
-        console.log(tx.processed.action_traces[0].console);
-
         let profileData = await profileContract.profiles.equal(profileUser2.name).find();
 
         assert.notEqual(profileData[0],       undefined,              "No user profile defined");
@@ -77,30 +71,64 @@ describe("Test profile contract", function (eoslime) {
         assert.equal(profileData[0].website,  userprofile2.website,   "Incorrect website");
         assert.equal(profileData[0].locale,   userprofile2.locale,    "Incorrect locale");
         assert.equal(profileData[0].metadata, userprofile2.metadata,  "Incorrect metadata");
-      });
-
-    it("John Doe count one thousand", async () => {
-        let tx = await profileContract.countot(profileUser1.name, {from: profileUser1});
-
-        // console.log(tx.processed.action_traces[0].console);
-        console.log('CPU:', tx.processed.receipt.cpu_usage_us, 'NET:', tx.processed.net_usage);
-        console.log(tx.processed.action_traces[0].console);
-
-        let profileData = await profileContract.profiles.equal(profileUser1.name).find();
-
-        assert.equal(profileData[0].count, '1000.00000000000000000', "Not one thousand");
     });
 
-    it("Jane Doe count ten thousand", async () => {
-        let tx = await profileContract.counttt(profileUser2.name, {from: profileUser2});
+    it("try to schedule task for user2 with user1 authority", async () => {
+        await eoslime.tests.expectMissingAuthority(profileContract.schedule(profileUser2.name, {from: profileUser1}));
+    });
 
-        // console.log(tx.processed.action_traces[0].console);
-        console.log('CPU:', tx.processed.receipt.cpu_usage_us, 'NET:', tx.processed.net_usage);
-        console.log(tx.processed.action_traces[0].console);
+    it("schedule task for 10 seconds ahead for user 2", async () => {
+        await profileContract.schedule(profileUser2.name, {from: profileUser2});
+    });
 
-        let profileData = await profileContract.profiles.equal(profileUser2.name).find();
+    it("schedule task for 10 seconds ahead for user 1", async () => {
+        await profileContract.schedule(profileUser1.name, {from: profileUser1});
+    });
 
-        assert.equal(profileData[0].count, '10000.00000000000000000', "Not ten thousand");
+    it("wait 1 second to allow a repeated schedule (avoid duplicate tx)", (done) => {
+        this.timeout(1000);
+        setTimeout(done, 1000);
+    });
+
+    it("schedule another task for 10 seconds ahead for user 2", async () => {
+        await profileContract.schedule(profileUser2.name, {from: profileUser2});
+    });
+
+    it("run tick and verify that one user increments by worker and other user remains with count 0", async () => {
+        await profileContract.tick({from: profileUser1});
+        let profileData1 = await profileContract.profiles.equal(profileUser1.name).find();
+        let profileData2 = await profileContract.profiles.equal(profileUser2.name).find();
+        assert.notEqual(profileData1[0].count + profileData2[0].count, '0.00000000000000000', "Still zero");
+    });
+
+    it("wait 10 seconds", (done) => {
+        this.timeout(10000);
+        setTimeout(done, 10000);
+    });
+
+    it("run tick and check that the first scheduled task executed", async () => {
+        await profileContract.tick({from: profileUser1});
+
+        let profileData1 = await profileContract.profiles.equal(profileUser1.name).find();
+        let profileData2 = await profileContract.profiles.equal(profileUser2.name).find();
+        assert.equal(profileData2[0].count == 100, true, "Task not executed");
+    });
+
+    it("run tick and check that the second scheduled task executed", async () => {
+        await profileContract.tick({from: profileUser2});       // different user auth to avoid "duplicate transaction" error
+
+        let profileData1 = await profileContract.profiles.equal(profileUser1.name).find();
+        let profileData2 = await profileContract.profiles.equal(profileUser2.name).find();
+        assert.equal(profileData2[0].count == 100, true, "Task not executed");
+    });
+
+    it("wait 1 second to allow a repeated tick (avoid duplicate tx)", (done) => {
+        this.timeout(1000);
+        setTimeout(done, 1000);
+    });
+
+    it("run tick and check that the third scheduled task executed but was cancelled for not doing anything", async () => {
+        await eoslime.tests.expectAssert(profileContract.tick({from: profileUser1}));
     });
 
 });
