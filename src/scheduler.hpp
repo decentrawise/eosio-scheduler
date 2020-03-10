@@ -50,6 +50,12 @@ protected:
     workers.push_back(work);
   }
 
+  void schedule(unsigned int seconds, T data) {
+    eosio::time_point_sec tps(eosio::current_time_point());
+    tps += eosio::seconds(seconds);
+    schedule(tps, data);
+  }
+
   void schedule(eosio::time_point timestamp, T data) {
     tasks_table tasks(owner, owner.value);
 

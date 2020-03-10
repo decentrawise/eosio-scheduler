@@ -106,9 +106,10 @@ public:
     eosio::check(iterator != profiles.end(), "User doesn't have a profile");
 
     // calc 10 secods from now and schedule
-    eosio::time_point_sec ntime(eosio::current_time_point());
-    ntime += eosio::seconds(10);
-    scheduler::schedule(ntime, user);
+    // eosio::time_point_sec ntime(eosio::current_time_point());
+    // ntime += eosio::seconds(10);
+    // use the overloaded schedule that accepts seconds instead of a time_point
+    scheduler::schedule(10, user);
   }
 
 protected:
